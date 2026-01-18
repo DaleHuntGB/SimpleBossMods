@@ -1,6 +1,7 @@
 # Simple BossMods
 
-## [a3201c4](https://github.com/ZapaNOR/SimpleBossMods/tree/a3201c4497937a3e215e6833efd160887a821e4f) (2026-01-18)
-[Full Changelog](https://github.com/ZapaNOR/SimpleBossMods/commits/a3201c4497937a3e215e6833efd160887a821e4f) 
+## [8e18f5e](https://github.com/ZapaNOR/SimpleBossMods/tree/8e18f5eaabf34db275fea05abfcf8f9cef01e461) (2026-01-18)
+[Full Changelog](https://github.com/ZapaNOR/SimpleBossMods/commits/8e18f5eaabf34db275fea05abfcf8f9cef01e461) 
 
+- release test  
 - initial commit  
