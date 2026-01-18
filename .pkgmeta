@@ -1,0 +1,11 @@
+package-as: SimpleBossMods
+enable-nolib-creation: no
+wago-id: 5NR8exK3
+
+ignore:
+    - README.md
+    - .git/
+    - .github/
+    - .vscode/
+    - .pkgmeta
+    - release.sh

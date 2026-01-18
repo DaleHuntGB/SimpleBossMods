@@ -4,6 +4,7 @@
 ## Author: Zapa
 ## Version: 0.5
 ## SavedVariables: SimpleBossModsDB
+## X-Wago-ID: 5NR8exK3
 
 SimpleBossMods.lua
 SBM_UI.lua

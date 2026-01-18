@@ -1,0 +1,14 @@
+## Interface: 120000, 120001
+## Title: Simple BossMods
+## Notes: 
+## Author: Zapa
+## Version: 0.5
+## SavedVariables: SimpleBossModsDB
+## X-Wago-ID: 5NR8exK3
+
+SimpleBossMods.lua
+SBM_UI.lua
+SBM_Layout.lua
+SBM_Test.lua
+SBM_Settings.lua
+SBM_Events.lua
