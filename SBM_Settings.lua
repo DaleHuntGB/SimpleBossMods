@@ -111,9 +111,15 @@ end
 -- =========================
 -- Settings Panel (Midnight-safe OpenToCategory)
 -- =========================
-function M:OpenSettings()
-	if Settings and Settings.OpenToCategory and type(self._settingsCategoryID) == "number" then
-		Settings.OpenToCategory(self._settingsCategoryID)
+function M:OpenSettings(target)
+	if not (Settings and Settings.OpenToCategory) then return end
+	local key = type(target) == "string" and target:lower() or ""
+	local id = self._settingsCategoryID
+	if key == "note" and type(self._settingsNoteCategoryID) == "number" then
+		id = self._settingsNoteCategoryID
+	end
+	if type(id) == "number" then
+		Settings.OpenToCategory(id)
 	end
 end
 
@@ -125,7 +131,7 @@ function M:CreateSettingsPanel()
 
 	local title = panel:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
 	title:SetPoint("TOPLEFT", 16, -16)
-	title:SetText("SimpleBossMods")
+	title:SetText("SimpleBossMods - General")
 
 	local curY = -52
 	local function Heading(text)
@@ -287,8 +293,136 @@ function M:CreateSettingsPanel()
 		M:LayoutAll()
 	end)
 
+	local notePanel = CreateFrame("Frame")
+	notePanel.name = "Note"
+
+	local noteTitle = notePanel:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
+	noteTitle:SetPoint("TOPLEFT", 16, -16)
+	noteTitle:SetText("SimpleBossMods - Note")
+
+	local noteHelp = notePanel:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+	noteHelp:SetPoint("TOPLEFT", 16, -44)
+	noteHelp:SetWidth(520)
+	noteHelp:SetJustifyH("LEFT")
+	noteHelp:SetText("Notes use MRT-style tags, e.g. {time:1:20} Some text {spell:1234}. Also accepts leading time like 1:20.")
+
+	local noteFrame = CreateFrame("Frame", nil, notePanel, "BackdropTemplate")
+	noteFrame:SetPoint("TOPLEFT", 16, -70)
+	noteFrame:SetPoint("BOTTOMRIGHT", -32, 44)
+	noteFrame:SetBackdrop({
+		bgFile = "Interface\\ChatFrame\\ChatFrameBackground",
+		edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+		edgeSize = 12,
+		insets = { left = 3, right = 3, top = 3, bottom = 3 },
+	})
+	noteFrame:SetBackdropColor(0, 0, 0, 0.35)
+	noteFrame:SetBackdropBorderColor(0.45, 0.45, 0.45, 0.9)
+
+	local scroll = CreateFrame("ScrollFrame", nil, noteFrame, "UIPanelScrollFrameTemplate")
+	scroll:SetPoint("TOPLEFT", 4, -4)
+	scroll:SetPoint("BOTTOMRIGHT", -26, 4)
+
+	local noteEdit = CreateFrame("EditBox", nil, scroll)
+	noteEdit:SetMultiLine(true)
+	noteEdit:SetAutoFocus(false)
+	noteEdit:SetFontObject("GameFontHighlight")
+	noteEdit:SetTextInsets(8, 8, 8, 8)
+	noteEdit:SetJustifyH("LEFT")
+	noteEdit:SetJustifyV("TOP")
+	scroll:SetScrollChild(noteEdit)
+
+	local noteHint = noteEdit:CreateFontString(nil, "ARTWORK", "GameFontDisable")
+	noteHint:SetPoint("TOPLEFT", 8, -6)
+	noteHint:SetText("Click to enter a note...")
+
+	local function GetNoteTextHeight()
+		if noteEdit.GetTextHeight then
+			return noteEdit:GetTextHeight()
+		end
+		if noteEdit.GetLineHeight and noteEdit.GetNumLines then
+			return noteEdit:GetLineHeight() * noteEdit:GetNumLines()
+		end
+		return 0
+	end
+
+	local function ResizeNoteBox()
+		local w = scroll:GetWidth()
+		if w and w > 0 then
+			noteEdit:SetWidth(w)
+		end
+		local h = math.max(scroll:GetHeight(), GetNoteTextHeight() + 12)
+		noteEdit:SetHeight(h)
+	end
+
+	local function UpdateNoteHint()
+		local hasText = (noteEdit:GetText() or "") ~= ""
+		if hasText or noteEdit:HasFocus() then
+			noteHint:Hide()
+		else
+			noteHint:Show()
+		end
+	end
+
+	local function SetNoteFocus(active)
+		if active then
+			noteFrame:SetBackdropBorderColor(1, 0.82, 0, 1)
+		else
+			noteFrame:SetBackdropBorderColor(0.45, 0.45, 0.45, 0.9)
+		end
+	end
+
+	local function RefreshNote()
+		noteEdit:SetText(SimpleBossModsDB.note or "")
+		noteEdit:ClearFocus()
+		noteEdit:HighlightText(0, 0)
+		ResizeNoteBox()
+		UpdateNoteHint()
+		SetNoteFocus(false)
+	end
+
+	noteEdit:SetScript("OnEditFocusGained", function()
+		SetNoteFocus(true)
+		UpdateNoteHint()
+	end)
+	noteEdit:SetScript("OnEditFocusLost", function(self)
+		SimpleBossModsDB.note = self:GetText() or ""
+		if M.ParseNote then M:ParseNote() end
+		SetNoteFocus(false)
+		UpdateNoteHint()
+	end)
+	noteEdit:SetScript("OnEscapePressed", function(self)
+		self:ClearFocus()
+		RefreshNote()
+	end)
+	noteEdit:SetScript("OnTextChanged", function()
+		ResizeNoteBox()
+		UpdateNoteHint()
+		SimpleBossModsDB.note = noteEdit:GetText() or ""
+	end)
+
+	scroll:SetScript("OnSizeChanged", function()
+		ResizeNoteBox()
+	end)
+
+	notePanel:SetScript("OnShow", function()
+		RefreshNote()
+	end)
+	notePanel:SetScript("OnHide", function()
+		SimpleBossModsDB.note = noteEdit:GetText() or ""
+		if M.ParseNote then M:ParseNote() end
+		SetNoteFocus(false)
+	end)
+
 	local category = Settings.RegisterCanvasLayoutCategory(panel, M._settingsCategoryName)
 	Settings.RegisterAddOnCategory(category)
+	if Settings.RegisterCanvasLayoutSubcategory then
+		local noteCategory = Settings.RegisterCanvasLayoutSubcategory(category, notePanel, "Note")
+		if noteCategory and type(noteCategory.GetID) == "function" then
+			M._settingsNoteCategoryID = noteCategory:GetID()
+		elseif noteCategory and type(noteCategory.ID) == "number" then
+			M._settingsNoteCategoryID = noteCategory.ID
+		end
+	end
 
 	if category and type(category.GetID) == "function" then
 		M._settingsCategoryID = category:GetID()

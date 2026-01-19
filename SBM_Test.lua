@@ -31,6 +31,45 @@ local TEST_INDICATOR_ICONS = {
 	135834, -- enrage-ish
 }
 
+local function canUseTimelineScriptEvents()
+	return M.CanUseTimelineNotes and M:CanUseTimelineNotes()
+end
+
+function M:ClearTestTimelineEvents()
+	if not (C_EncounterTimeline and type(C_EncounterTimeline.RemoveScriptEvent) == "function") then
+		self._testTimelineEventIDs = nil
+		return
+	end
+	if not self._testTimelineEventIDs then return end
+	for _, id in pairs(self._testTimelineEventIDs) do
+		if id then
+			pcall(C_EncounterTimeline.RemoveScriptEvent, id)
+		end
+	end
+	self._testTimelineEventIDs = nil
+end
+
+function M:PushTestTimelineEvents()
+	if not (C_EncounterTimeline and type(C_EncounterTimeline.AddScriptEvent) == "function") then
+		return false
+	end
+
+	self._testTimelineEventIDs = {}
+	for i, t in ipairs(TEST_ICONS) do
+		local payload = {
+			duration = t.dur,
+			spellID = t.spellId or 12345,
+			overrideName = t.label,
+			iconFileID = t.icon,
+			maxQueueDuration = 0,
+		}
+		local id = C_EncounterTimeline.AddScriptEvent(payload)
+		self._testTimelineEventIDs[i] = id
+	end
+
+	return true
+end
+
 local function applyFakeIndicators(frame, isIcon)
 	local target = isIcon and frame.indicatorsFrame or frame.endIndicatorsFrame
 	if not target then return end
@@ -55,11 +94,30 @@ function M:StopTest()
 		self._testTicker:Cancel()
 		self._testTicker = nil
 	end
+	if self.ClearTestTimelineEvents then
+		self:ClearTestTimelineEvents()
+	end
 	self:clearAll()
 end
 
 function M:StartTest()
 	self:StopTest()
+
+	if canUseTimelineScriptEvents() and self.PushTestTimelineEvents then
+		self:PushTestTimelineEvents()
+		local maxDur = 0
+		for _, t in ipairs(TEST_ICONS) do
+			if t.dur > maxDur then maxDur = t.dur end
+		end
+		if C_EncounterTimeline and type(C_EncounterTimeline.RemoveScriptEvent) == "function" then
+			self._testTicker = C_Timer.NewTicker(maxDur + 0.1, function()
+				self:ClearTestTimelineEvents()
+				self:PushTestTimelineEvents()
+			end)
+		end
+		C_Timer.After(0, function() M:Tick() end)
+		return
+	end
 
 	local base = (math.floor(GetTime() * 1000) % 1000000) + 9100000
 	local pool = {}
