@@ -113,22 +113,6 @@ function M:clearAll()
 	self:LayoutAll()
 end
 
-function M:ClearNoteEvents()
-	for id, rec in pairs(self.events) do
-		if rec.isNote then
-			self:removeEvent(id)
-		end
-	end
-end
-
-function M:ClearNonNoteEvents()
-	for id, rec in pairs(self.events) do
-		if not rec.isNote then
-			self:removeEvent(id)
-		end
-	end
-end
-
 local function updateRecTiming(rec, remaining)
 	local now = GetTime()
 	if type(remaining) ~= "number" then return end
@@ -212,17 +196,14 @@ function M:ensureBar(rec)
 	refreshBarLabelAndIcon(rec)
 
 	M.applyIndicatorsToBarEnd(bar, rec.id)
-	M.setBarFillFlat(bar, C.BAR_FG_R, C.BAR_FG_G, C.BAR_FG_B, C.BAR_FG_A)
+	M.setBarFillFlat(bar, L.BAR_FG_R, L.BAR_FG_G, L.BAR_FG_B, L.BAR_FG_A)
 
 	bar:SetScript("OnUpdate", function(self)
 		local rrec = M.events[self.__id]
 		if not rrec then return end
 
 		local rem = rrec.remaining
-		if rrec.isNote and rrec.noteCombatStart and rrec.noteTime then
-			rem = rrec.noteTime - (GetTime() - rrec.noteCombatStart)
-			rrec.remaining = rem
-		elseif C_EncounterTimeline and C_EncounterTimeline.GetEventTimeRemaining then
+		if C_EncounterTimeline and C_EncounterTimeline.GetEventTimeRemaining then
 			local ok, v = pcall(C_EncounterTimeline.GetEventTimeRemaining, rrec.id)
 			if ok and type(v) == "number" then
 				rem = v
@@ -257,12 +238,7 @@ function M:updateRecord(eventID, eventInfo, remaining)
 	rec.remaining = remaining or rec.remaining
 
 	if type(rec.remaining) == "number" then
-		if rec.isNote and rec.noteCombatStart and rec.noteTime then
-			rec.startTime = rec.noteCombatStart
-			rec.duration = rec.noteTime
-		else
-			updateRecTiming(rec, rec.remaining)
-		end
+		updateRecTiming(rec, rec.remaining)
 	end
 
 	if type(rec.remaining) == "number" and rec.remaining <= C.THRESHOLD_TO_BAR then
@@ -285,60 +261,22 @@ function M:updateRecord(eventID, eventInfo, remaining)
 			f.cd:Clear()
 		end
 
-		M.applyIndicatorsToIconFrame(f, rec.id)
+		if rec.isTest and M.ApplyTestIndicators then
+			M:ApplyTestIndicators(f, true)
+		else
+			M.applyIndicatorsToIconFrame(f, rec.id)
+		end
 	end
 
 	if rec.barFrame then
 		refreshBarLabelAndIcon(rec)
-		M.applyIndicatorsToBarEnd(rec.barFrame, rec.id)
-		M.setBarFillFlat(rec.barFrame, C.BAR_FG_R, C.BAR_FG_G, C.BAR_FG_B, C.BAR_FG_A)
-	end
-end
-
-function M:UpdateNoteEvents()
-	if not self.noteCombatStart then
-		if self.ClearNoteEvents then self:ClearNoteEvents() end
-		return false
-	end
-	if not self.noteEntries or #self.noteEntries == 0 then
-		if self.ClearNoteEvents then self:ClearNoteEvents() end
-		return false
-	end
-
-	local elapsed = GetTime() - self.noteCombatStart
-	local any = false
-
-	for i, entry in ipairs(self.noteEntries) do
-		local remaining = entry.time - elapsed
-		local eventID = entry.id
-		if not eventID then
-			eventID = -(1000000 + i)
-			entry.id = eventID
-		end
-
-		if remaining > 0 then
-			local rec = self.events[eventID]
-			if not rec then
-				rec = { id = eventID }
-				self.events[eventID] = rec
-			end
-			rec.isNote = true
-			rec.noteCombatStart = self.noteCombatStart
-			rec.noteTime = entry.time
-
-			local info = {
-				name = entry.text,
-				iconFileID = entry.icon,
-				spellID = entry.spellId,
-			}
-			self:updateRecord(eventID, info, remaining)
-			any = true
+		if rec.isTest and M.ApplyTestIndicators then
+			M:ApplyTestIndicators(rec.barFrame, false)
 		else
-			self:removeEvent(eventID)
+			M.applyIndicatorsToBarEnd(rec.barFrame, rec.id)
 		end
+		M.setBarFillFlat(rec.barFrame, L.BAR_FG_R, L.BAR_FG_G, L.BAR_FG_B, L.BAR_FG_A)
 	end
-
-	return any
 end
 
 -- =========================
@@ -347,66 +285,51 @@ end
 function M:Tick()
 	if not self.enabled then return end
 	if self._testTicker then return end
-	local useTimelineNotes = self.CanUseTimelineNotes and self:CanUseTimelineNotes()
 	local hasTimeline = C_EncounterTimeline
 		and C_EncounterTimeline.HasActiveEvents
 		and C_EncounterTimeline.GetEventList
-	local timelineActive = false
+	if not hasTimeline then return end
 
-	if hasTimeline and C_EncounterTimeline.HasActiveEvents() then
-		timelineActive = true
-		local list = C_EncounterTimeline.GetEventList()
-		if type(list) == "table" then
-			local seen = {}
-			for _, eventID in ipairs(list) do
-				seen[eventID] = true
-				local info = C_EncounterTimeline.GetEventInfo and C_EncounterTimeline.GetEventInfo(eventID) or nil
-				local rem = C_EncounterTimeline.GetEventTimeRemaining and C_EncounterTimeline.GetEventTimeRemaining(eventID) or nil
-				self:updateRecord(eventID, info, rem)
-				local rec = self.events[eventID]
-				if rec then rec.isNote = false end
-			end
+	if not C_EncounterTimeline.HasActiveEvents() then
+		if next(self.events) ~= nil then self:clearAll() end
+		return
+	end
 
-			for id, rec in pairs(self.events) do
-				if not rec.isNote and not seen[id] then
-					self:removeEvent(id)
-				end
-			end
-		else
-			self:ClearNonNoteEvents()
+	local list = C_EncounterTimeline.GetEventList()
+	if type(list) ~= "table" then return end
+
+	local seen = {}
+	for _, eventID in ipairs(list) do
+		seen[eventID] = true
+		local rec = self.events[eventID]
+		if not rec then
+			rec = { id = eventID }
+			self.events[eventID] = rec
 		end
-	elseif hasTimeline then
-		self:ClearNonNoteEvents()
+		rec.isTest = self._testTimelineEventIDSet and self._testTimelineEventIDSet[eventID] or false
+
+		local info = C_EncounterTimeline.GetEventInfo and C_EncounterTimeline.GetEventInfo(eventID) or nil
+		local rem = C_EncounterTimeline.GetEventTimeRemaining and C_EncounterTimeline.GetEventTimeRemaining(eventID) or nil
+		self:updateRecord(eventID, info, rem)
 	end
 
-	if not useTimelineNotes and not self.noteCombatStart then
-		if timelineActive or (UnitAffectingCombat and UnitAffectingCombat("player")) then
-			self.noteCombatStart = GetTime()
-		end
+	for id in pairs(self.events) do
+		if not seen[id] then self:removeEvent(id) end
 	end
 
-	local hasNotes = false
-	if not useTimelineNotes and self.UpdateNoteEvents then
-		hasNotes = self:UpdateNoteEvents()
-	end
-
-	-- Keep icon numbers updating smoothly for timeline events
-	if timelineActive then
-		for _, rec in pairs(self.events) do
-			if not rec.isNote and rec.iconFrame and C_EncounterTimeline and C_EncounterTimeline.GetEventTimeRemaining then
-				local ok, v = pcall(C_EncounterTimeline.GetEventTimeRemaining, rec.id)
-				if ok and type(v) == "number" then
-					rec.remaining = v
-					updateRecTiming(rec, v)
-					self:updateRecord(rec.id, rec.eventInfo, v)
-				end
+	-- Keep icon numbers updating smoothly
+	for _, rec in pairs(self.events) do
+		if rec.iconFrame and C_EncounterTimeline and C_EncounterTimeline.GetEventTimeRemaining then
+			local ok, v = pcall(C_EncounterTimeline.GetEventTimeRemaining, rec.id)
+			if ok and type(v) == "number" then
+				rec.remaining = v
+				updateRecTiming(rec, v)
+				self:updateRecord(rec.id, rec.eventInfo, v)
 			end
 		end
 	end
 
-	if timelineActive or hasNotes or next(self.events) ~= nil then
-		self:LayoutAll()
-	end
+	self:LayoutAll()
 end
 
 C_Timer.NewTicker(C.TICK_INTERVAL, function() M:Tick() end)

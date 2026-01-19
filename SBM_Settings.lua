@@ -65,7 +65,7 @@ function M:ApplyBarConfig(width, height, fontSize, borderThickness)
 
 			M.applyBarFont(rec.barFrame.txt)
 			M.applyBarFont(rec.barFrame.rt)
-			M.setBarFillFlat(rec.barFrame, C.BAR_FG_R, C.BAR_FG_G, C.BAR_FG_B, C.BAR_FG_A)
+			M.setBarFillFlat(rec.barFrame, L.BAR_FG_R, L.BAR_FG_G, L.BAR_FG_B, L.BAR_FG_A)
 		end
 	end
 	for _, f in ipairs(M.pools.bar) do
@@ -83,10 +83,30 @@ function M:ApplyBarConfig(width, height, fontSize, borderThickness)
 		end
 		if f.txt then M.applyBarFont(f.txt) end
 		if f.rt then M.applyBarFont(f.rt) end
-		M.setBarFillFlat(f, C.BAR_FG_R, C.BAR_FG_G, C.BAR_FG_B, C.BAR_FG_A)
+		M.setBarFillFlat(f, L.BAR_FG_R, L.BAR_FG_G, L.BAR_FG_B, L.BAR_FG_A)
 	end
 
 	self:LayoutAll()
+end
+
+function M:ApplyBarColor(r, g, b, a)
+	local bc = SimpleBossModsDB.cfg.bars
+	bc.color = bc.color or {}
+	bc.color.r = U.clamp(tonumber(r) or L.BAR_FG_R, 0, 1)
+	bc.color.g = U.clamp(tonumber(g) or L.BAR_FG_G, 0, 1)
+	bc.color.b = U.clamp(tonumber(b) or L.BAR_FG_B, 0, 1)
+	bc.color.a = U.clamp(tonumber(a) or L.BAR_FG_A, 0, 1)
+
+	M.SyncLiveConfig()
+
+	for _, rec in pairs(self.events) do
+		if rec.barFrame then
+			M.setBarFillFlat(rec.barFrame, L.BAR_FG_R, L.BAR_FG_G, L.BAR_FG_B, L.BAR_FG_A)
+		end
+	end
+	for _, f in ipairs(M.pools.bar) do
+		M.setBarFillFlat(f, L.BAR_FG_R, L.BAR_FG_G, L.BAR_FG_B, L.BAR_FG_A)
+	end
 end
 
 function M:ApplyIndicatorConfig(iconSize, barSize)
@@ -111,15 +131,9 @@ end
 -- =========================
 -- Settings Panel (Midnight-safe OpenToCategory)
 -- =========================
-function M:OpenSettings(target)
-	if not (Settings and Settings.OpenToCategory) then return end
-	local key = type(target) == "string" and target:lower() or ""
-	local id = self._settingsCategoryID
-	if key == "note" and type(self._settingsNoteCategoryID) == "number" then
-		id = self._settingsNoteCategoryID
-	end
-	if type(id) == "number" then
-		Settings.OpenToCategory(id)
+function M:OpenSettings()
+	if Settings and Settings.OpenToCategory and type(self._settingsCategoryID) == "number" then
+		Settings.OpenToCategory(self._settingsCategoryID)
 	end
 end
 
@@ -147,7 +161,56 @@ function M:CreateSettingsPanel()
 	local ROW_H = 26
 	local inputs = {}
 
-	local function AddNumberRow(label, get, set, tooltip, allowDecimal)
+	local function OpenColorPicker(r, g, b, a, changedCallback)
+		if not ColorPickerFrame then return end
+		local function apply()
+			local nr, ng, nb = ColorPickerFrame:GetColorRGB()
+			local na = 1 - (ColorPickerFrame.opacity or 0)
+			changedCallback(nr, ng, nb, na)
+		end
+
+		if ColorPickerFrame.SetupColorPickerAndShow then
+			local info = {
+				r = r,
+				g = g,
+				b = b,
+				opacity = 1 - (a or 1),
+				hasOpacity = true,
+				swatchFunc = apply,
+				opacityFunc = apply,
+				cancelFunc = function(prev)
+					if not prev then return end
+					local pr = prev.r or r
+					local pg = prev.g or g
+					local pb = prev.b or b
+					local pa = prev.opacity and (1 - prev.opacity) or prev.a or a or 1
+					changedCallback(pr, pg, pb, pa)
+				end,
+				previousValues = { r = r, g = g, b = b, opacity = 1 - (a or 1) },
+			}
+			ColorPickerFrame:SetupColorPickerAndShow(info)
+			return
+		end
+
+		ColorPickerFrame:Hide()
+		ColorPickerFrame.hasOpacity = true
+		ColorPickerFrame.opacity = 1 - (a or 1)
+		ColorPickerFrame.previousValues = { r = r, g = g, b = b, a = a }
+		ColorPickerFrame.func = apply
+		ColorPickerFrame.opacityFunc = apply
+		ColorPickerFrame.cancelFunc = function(prev)
+			if not prev then return end
+			local pr = prev.r or r
+			local pg = prev.g or g
+			local pb = prev.b or b
+			local pa = prev.a or (prev.opacity and (1 - prev.opacity)) or a or 1
+			changedCallback(pr, pg, pb, pa)
+		end
+		ColorPickerFrame:SetColorRGB(r, g, b)
+		ColorPickerFrame:Show()
+	end
+
+	local function AddNumberRow(label, get, set, tooltip, allowDecimal, allowNegative)
 		local fs = panel:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
 		fs:SetPoint("TOPLEFT", LABEL_X, curY)
 		fs:SetText(label)
@@ -158,7 +221,7 @@ function M:CreateSettingsPanel()
 		eb:SetPoint("LEFT", panel, "TOPLEFT", INPUT_X, curY - 2)
 
 		-- allow decimals: do NOT SetNumeric(true) (it blocks '.' in many clients)
-		if not allowDecimal then
+		if not allowDecimal and not allowNegative then
 			eb:SetNumeric(true)
 		end
 
@@ -195,6 +258,45 @@ function M:CreateSettingsPanel()
 		return eb
 	end
 
+	local function AddColorRow(label, get, set)
+		local fs = panel:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
+		fs:SetPoint("TOPLEFT", LABEL_X, curY)
+		fs:SetText(label)
+
+		local swatch = CreateFrame("Button", nil, panel, "BackdropTemplate")
+		swatch:SetSize(22, 22)
+		swatch:SetPoint("LEFT", panel, "TOPLEFT", INPUT_X, curY - 2)
+		swatch:SetBackdrop({
+			bgFile = "Interface\\ChatFrame\\ChatFrameBackground",
+			edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+			edgeSize = 12,
+			insets = { left = 2, right = 2, top = 2, bottom = 2 },
+		})
+		swatch:SetBackdropColor(0, 0, 0, 1)
+
+		local tex = swatch:CreateTexture(nil, "ARTWORK")
+		tex:SetPoint("TOPLEFT", 3, -3)
+		tex:SetPoint("BOTTOMRIGHT", -3, 3)
+		swatch.tex = tex
+
+		local function refresh()
+			local r, g, b, a = get()
+			swatch.tex:SetColorTexture(r, g, b, a or 1)
+		end
+
+		swatch:SetScript("OnClick", function()
+			local r, g, b, a = get()
+			OpenColorPicker(r, g, b, a, function(nr, ng, nb, na)
+				set(nr, ng, nb, na)
+				refresh()
+			end)
+		end)
+
+		table.insert(inputs, refresh)
+		curY = curY - ROW_H
+		return swatch
+	end
+
 	-- GENERAL
 	Heading("General")
 
@@ -212,8 +314,8 @@ function M:CreateSettingsPanel()
 
 	AddNumberRow("Gap",
 		function() return SimpleBossModsDB.cfg.general.gap or 6 end,
-		function(v) M:ApplyGeneralConfig(SimpleBossModsDB.pos.x or 0, SimpleBossModsDB.pos.y or 0, U.clamp(U.round(v), 0, 30)) end,
-		"Used for icon gap and bars-to-icons gap.", false
+		function(v) M:ApplyGeneralConfig(SimpleBossModsDB.pos.x or 0, SimpleBossModsDB.pos.y or 0, U.clamp(U.round(v), -30, 30)) end,
+		"Used for icon gap and bars-to-icons gap.", false, true
 	)
 
 	curY = curY - 10
@@ -254,6 +356,10 @@ function M:CreateSettingsPanel()
 		function() return SimpleBossModsDB.cfg.bars.borderThickness end,
 		function(v) M:ApplyBarConfig(SimpleBossModsDB.cfg.bars.width, SimpleBossModsDB.cfg.bars.height, SimpleBossModsDB.cfg.bars.fontSize, v) end
 	)
+	AddColorRow("Bar Color",
+		function() return L.BAR_FG_R, L.BAR_FG_G, L.BAR_FG_B, L.BAR_FG_A end,
+		function(r, g, b, a) M:ApplyBarColor(r, g, b, a) end
+	)
 
 	curY = curY - 12
 
@@ -275,14 +381,8 @@ function M:CreateSettingsPanel()
 	local testBtn = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
 	testBtn:SetSize(160, 22)
 	testBtn:SetPoint("TOPLEFT", 16, curY)
-	testBtn:SetText("Test (Loop)")
+	testBtn:SetText("Test")
 	testBtn:SetScript("OnClick", function() M:StartTest() end)
-
-	local clearBtn = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
-	clearBtn:SetSize(160, 22)
-	clearBtn:SetPoint("LEFT", testBtn, "RIGHT", 10, 0)
-	clearBtn:SetText("Clear")
-	clearBtn:SetScript("OnClick", function() M:StopTest() end)
 
 	panel:SetScript("OnShow", function()
 		for _, r in ipairs(inputs) do r() end
@@ -293,136 +393,8 @@ function M:CreateSettingsPanel()
 		M:LayoutAll()
 	end)
 
-	local notePanel = CreateFrame("Frame")
-	notePanel.name = "Note"
-
-	local noteTitle = notePanel:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
-	noteTitle:SetPoint("TOPLEFT", 16, -16)
-	noteTitle:SetText("SimpleBossMods - Note")
-
-	local noteHelp = notePanel:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
-	noteHelp:SetPoint("TOPLEFT", 16, -44)
-	noteHelp:SetWidth(520)
-	noteHelp:SetJustifyH("LEFT")
-	noteHelp:SetText("Notes use MRT-style tags, e.g. {time:1:20} Some text {spell:1234}. Also accepts leading time like 1:20.")
-
-	local noteFrame = CreateFrame("Frame", nil, notePanel, "BackdropTemplate")
-	noteFrame:SetPoint("TOPLEFT", 16, -70)
-	noteFrame:SetPoint("BOTTOMRIGHT", -32, 44)
-	noteFrame:SetBackdrop({
-		bgFile = "Interface\\ChatFrame\\ChatFrameBackground",
-		edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
-		edgeSize = 12,
-		insets = { left = 3, right = 3, top = 3, bottom = 3 },
-	})
-	noteFrame:SetBackdropColor(0, 0, 0, 0.35)
-	noteFrame:SetBackdropBorderColor(0.45, 0.45, 0.45, 0.9)
-
-	local scroll = CreateFrame("ScrollFrame", nil, noteFrame, "UIPanelScrollFrameTemplate")
-	scroll:SetPoint("TOPLEFT", 4, -4)
-	scroll:SetPoint("BOTTOMRIGHT", -26, 4)
-
-	local noteEdit = CreateFrame("EditBox", nil, scroll)
-	noteEdit:SetMultiLine(true)
-	noteEdit:SetAutoFocus(false)
-	noteEdit:SetFontObject("GameFontHighlight")
-	noteEdit:SetTextInsets(8, 8, 8, 8)
-	noteEdit:SetJustifyH("LEFT")
-	noteEdit:SetJustifyV("TOP")
-	scroll:SetScrollChild(noteEdit)
-
-	local noteHint = noteEdit:CreateFontString(nil, "ARTWORK", "GameFontDisable")
-	noteHint:SetPoint("TOPLEFT", 8, -6)
-	noteHint:SetText("Click to enter a note...")
-
-	local function GetNoteTextHeight()
-		if noteEdit.GetTextHeight then
-			return noteEdit:GetTextHeight()
-		end
-		if noteEdit.GetLineHeight and noteEdit.GetNumLines then
-			return noteEdit:GetLineHeight() * noteEdit:GetNumLines()
-		end
-		return 0
-	end
-
-	local function ResizeNoteBox()
-		local w = scroll:GetWidth()
-		if w and w > 0 then
-			noteEdit:SetWidth(w)
-		end
-		local h = math.max(scroll:GetHeight(), GetNoteTextHeight() + 12)
-		noteEdit:SetHeight(h)
-	end
-
-	local function UpdateNoteHint()
-		local hasText = (noteEdit:GetText() or "") ~= ""
-		if hasText or noteEdit:HasFocus() then
-			noteHint:Hide()
-		else
-			noteHint:Show()
-		end
-	end
-
-	local function SetNoteFocus(active)
-		if active then
-			noteFrame:SetBackdropBorderColor(1, 0.82, 0, 1)
-		else
-			noteFrame:SetBackdropBorderColor(0.45, 0.45, 0.45, 0.9)
-		end
-	end
-
-	local function RefreshNote()
-		noteEdit:SetText(SimpleBossModsDB.note or "")
-		noteEdit:ClearFocus()
-		noteEdit:HighlightText(0, 0)
-		ResizeNoteBox()
-		UpdateNoteHint()
-		SetNoteFocus(false)
-	end
-
-	noteEdit:SetScript("OnEditFocusGained", function()
-		SetNoteFocus(true)
-		UpdateNoteHint()
-	end)
-	noteEdit:SetScript("OnEditFocusLost", function(self)
-		SimpleBossModsDB.note = self:GetText() or ""
-		if M.ParseNote then M:ParseNote() end
-		SetNoteFocus(false)
-		UpdateNoteHint()
-	end)
-	noteEdit:SetScript("OnEscapePressed", function(self)
-		self:ClearFocus()
-		RefreshNote()
-	end)
-	noteEdit:SetScript("OnTextChanged", function()
-		ResizeNoteBox()
-		UpdateNoteHint()
-		SimpleBossModsDB.note = noteEdit:GetText() or ""
-	end)
-
-	scroll:SetScript("OnSizeChanged", function()
-		ResizeNoteBox()
-	end)
-
-	notePanel:SetScript("OnShow", function()
-		RefreshNote()
-	end)
-	notePanel:SetScript("OnHide", function()
-		SimpleBossModsDB.note = noteEdit:GetText() or ""
-		if M.ParseNote then M:ParseNote() end
-		SetNoteFocus(false)
-	end)
-
 	local category = Settings.RegisterCanvasLayoutCategory(panel, M._settingsCategoryName)
 	Settings.RegisterAddOnCategory(category)
-	if Settings.RegisterCanvasLayoutSubcategory then
-		local noteCategory = Settings.RegisterCanvasLayoutSubcategory(category, notePanel, "Note")
-		if noteCategory and type(noteCategory.GetID) == "function" then
-			M._settingsNoteCategoryID = noteCategory:GetID()
-		elseif noteCategory and type(noteCategory.ID) == "number" then
-			M._settingsNoteCategoryID = noteCategory.ID
-		end
-	end
 
 	if category and type(category.GetID) == "function" then
 		M._settingsCategoryID = category:GetID()
