@@ -256,6 +256,8 @@ end
 local function applyBarFont(fs)
 	if not fs then return end
 	fs:SetFont(C.FONT_PATH, L.BAR_FONT_SIZE, C.FONT_FLAGS)
+	fs:SetShadowColor(0, 0, 0, 0)
+	fs:SetShadowOffset(0, 0)
 end
 
 M.applyIconFont = applyIconFont
