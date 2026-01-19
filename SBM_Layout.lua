@@ -78,10 +78,10 @@ function M:layoutBars()
 
 		f:ClearAllPoints()
 		f:SetPoint("BOTTOMLEFT", frames.barsParent, "BOTTOMLEFT", 0, y)
-		y = y + L.BAR_HEIGHT + C.BAR_GAP
+		y = y + L.BAR_HEIGHT + L.GAP
 	end
 
-	local h = (#list > 0) and (y - C.BAR_GAP) or 1
+	local h = (#list > 0) and (y - L.GAP) or 1
 	local totalW = L.BAR_WIDTH + (maxEndW > 0 and (C.BAR_END_INDICATOR_GAP_X + maxEndW) or 0)
 	frames.barsParent:SetSize(totalW, h)
 end
