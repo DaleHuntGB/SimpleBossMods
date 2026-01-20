@@ -5,6 +5,7 @@
 ## Version: 0.8
 ## SavedVariables: SimpleBossModsDB
 ## X-Wago-ID: 5NR8exK3
+## X-Curse-Project-ID: 1437959
 
 SimpleBossMods.lua
 SBM_UI.lua
